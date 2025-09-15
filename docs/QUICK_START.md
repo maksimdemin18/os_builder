@@ -2,47 +2,39 @@
 
 ## За 5 минут
 
-### 1. Скачайте проект
-\`\`\`bash
-# Из v0: нажмите три точки → Download ZIP → распакуйте
-# Или клонируйте из Git:
-git clone https://github.com/your-username/ubuntu-iso-builder.git
-cd ubuntu-iso-builder
-\`\`\`
-
-### 2. Установите зависимости
+### 1.  Установите зависимости
 \`\`\`bash
 chmod +x scripts/install-deps-manual.sh
 ./scripts/install-deps-manual.sh
 \`\`\`
 
-### 3. Исправьте репозитории (если нужно)
+### 2. Исправьте репозитории (если нужно)
 \`\`\`bash
 chmod +x scripts/fix-repositories.sh
 ./scripts/fix-repositories.sh
 \`\`\`
 
-### 4. Проверьте систему
+### 3. Проверьте систему
 \`\`\`bash
 chmod +x scripts/diagnose-system.sh
 ./scripts/diagnose-system.sh
 \`\`\`
 
-### 5. Соберите базовый образ
+### 4. Соберите базовый образ
 \`\`\`bash
 cd packer
 packer init .
 packer build -var 'profile=base' .
 \`\`\`
 
-### 6. Создайте ISO
+### 5. Создайте ISO
 \`\`\`bash
 cd ../live-build
 chmod +x mkiso.sh
 sudo ./mkiso.sh base
 \`\`\`
 
-### 7. Готово!
+### 6. Готово!
 Ваш ISO в папке `dist/ubuntu-24.04-base.iso`
 
 ## Тестирование
