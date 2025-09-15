@@ -1,0 +1,143 @@
+---
+# Data Warehouse профиль
+
+- name: Create DW profile marker
+  file:
+    path: /etc/profile.d/00-dw-profile.sh
+    state: touch
+    mode: '0644'
+
+- name: Set DW profile environment
+  lineinfile:
+    path: /etc/profile.d/00-dw-profile.sh
+    line: "{{ item }}"
+  loop:
+    - "export OS_PROFILE=dw"
+    - "export OS_PROFILE_VERSION=1.0.0"
+    - "export OS_BUILD_TYPE=datawarehouse"
+    - "export RABBITMQ_HOME=/var/lib/rabbitmq"
+    - "export MYSQL_HOME=/var/lib/mysql"
+
+- name: Install RabbitMQ server
+  apt:
+    name: rabbitmq-server
+    state: present
+
+- name: Enable RabbitMQ management plugin
+  rabbitmq_plugin:
+    names: rabbitmq_management
+    state: enabled
+  notify: restart rabbitmq
+
+- name: Create RabbitMQ DW user
+  rabbitmq_user:
+    user: "{{ rabbitmq_default_user }}"
+    password: "{{ rabbitmq_default_pass }}"
+    vhost: "{{ rabbitmq_default_vhost }}"
+    configure_priv: ".*"
+    read_priv: ".*"
+    write_priv: ".*"
+    tags: "administrator"
+    state: present
+
+- name: Install MariaDB server
+  apt:
+    name:
+      - mariadb-server
+      - python3-pymysql
+    state: present
+
+- name: Start and enable MariaDB
+  systemd:
+    name: mariadb
+    state: started
+    enabled: yes
+
+- name: Set MariaDB root password
+  mysql_user:
+    name: root
+    password: "{{ mariadb_root_password }}"
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    state: present
+
+- name: Create MariaDB databases
+  mysql_db:
+    name: "{{ item.name }}"
+    encoding: "{{ item.encoding }}"
+    collation: "{{ item.collation }}"
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    state: present
+  loop: "{{ mariadb_databases }}"
+
+- name: Create MariaDB users
+  mysql_user:
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    priv: "{{ item.priv }}"
+    host: "{{ item.host }}"
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    state: present
+  loop: "{{ mariadb_users }}"
+
+- name: Install Redis server
+  apt:
+    name: redis-server
+    state: present
+
+- name: Configure Redis
+  lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  loop:
+    - { regexp: '^bind ', line: 'bind {{ redis_bind_address }}' }
+    - { regexp: '^port ', line: 'port {{ redis_port }}' }
+    - { regexp: '^maxmemory ', line: 'maxmemory {{ redis_maxmemory }}' }
+    - { regexp: '^maxmemory-policy ', line: 'maxmemory-policy {{ redis_maxmemory_policy }}' }
+  notify: restart redis
+
+- name: Install DW Python packages
+  pip:
+    name: "{{ dw_packages }}"
+    state: present
+    executable: pip3
+
+- name: Create DW profile info file
+  copy:
+    content: |
+      Profile: dw
+      Description: Data Warehouse система
+      Version: 1.0.0
+      Build Date: {{ ansible_date_time.iso8601 }}
+      
+      Included Components:
+      - RabbitMQ Server ({{ rabbitmq_default_vhost }})
+      - MariaDB Server
+      - Redis Server
+      - Python data processing libraries
+      - Full monitoring stack
+      
+      Services:
+      - RabbitMQ Management: http://localhost:15672
+      - MariaDB: localhost:3306
+      - Redis: localhost:{{ redis_port }}
+      
+      Default Credentials:
+      - RabbitMQ: {{ rabbitmq_default_user }}/{{ rabbitmq_default_pass }}
+      - MariaDB root: root/{{ mariadb_root_password }}
+    dest: /etc/profile-info
+    mode: '0644'
+
+handlers:
+  - name: restart rabbitmq
+    systemd:
+      name: rabbitmq-server
+      state: restarted
+
+  - name: restart redis
+    systemd:
+      name: redis-server
+      state: restarted

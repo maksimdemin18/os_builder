@@ -1,0 +1,252 @@
+---
+- name: Install development and system tools
+  apt:
+    name:
+      - atop
+      - inxi
+      - net-tools
+      - gcc
+      - make
+      - build-essential
+      - htop
+      - iotop
+      - tree
+      - vim
+      - nano
+      - git
+      - rsync
+      - screen
+      - tmux
+      - lsof
+      - strace
+      - ltrace
+      - tcpdump
+      - wireshark-common
+      - dnsutils
+      - iputils-ping
+      - telnet
+      - netcat-openbsd
+      - nmap
+      - jq
+      - python3
+      - python3-pip
+      - python3-venv
+      - nodejs
+      - npm
+      - sqlite3
+      - mysql-client
+      - postgresql-client
+      - redis-tools
+    state: present
+
+- name: Install additional system utilities
+  apt:
+    name:
+      - sysstat
+      - iftop
+      - nethogs
+      - ncdu
+      - pv
+      - parallel
+      - bc
+      - dc
+      - units
+      - file
+      - less
+      - most
+      - colordiff
+      - moreutils
+      - dos2unix
+      - hexdump
+      - xxd
+    state: present
+
+- name: Install network diagnostic tools
+  apt:
+    name:
+      - mtr-tiny
+      - traceroute
+      - whois
+      - dig
+      - host
+      - nslookup
+      - ss
+      - netstat
+      - arp-scan
+      - ethtool
+      - bridge-utils
+    state: present
+    
+- name: Configure vim as default editor
+  alternatives:
+    name: editor
+    path: /usr/bin/vim.basic
+
+- name: Create global vimrc configuration
+  copy:
+    content: |
+      " Global vim configuration
+      set nocompatible
+      set number
+      set ruler
+      set showcmd
+      set incsearch
+      set hlsearch
+      set autoindent
+      set smartindent
+      set tabstop=4
+      set shiftwidth=4
+      set expandtab
+      set backspace=indent,eol,start
+      syntax on
+      
+      " Color scheme
+      colorscheme default
+      
+      " Show whitespace
+      set listchars=tab:>-,trail:·,eol:$
+      
+      " File type detection
+      filetype on
+      filetype plugin on
+      filetype indent on
+    dest: /etc/vim/vimrc.local
+    mode: '0644'
+
+- name: Configure git global settings
+  git_config:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    scope: system
+  loop:
+    - { name: 'init.defaultBranch', value: 'main' }
+    - { name: 'pull.rebase', value: 'false' }
+    - { name: 'core.editor', value: 'vim' }
+
+- name: Install Python packages globally
+  pip:
+    name:
+      - requests
+      - urllib3
+      - pyyaml
+      - jinja2
+      - psutil
+      - netifaces
+    state: present
+    executable: pip3
+
+- name: Create useful aliases
+  lineinfile:
+    path: /etc/bash.bashrc
+    line: "{{ item }}"
+    create: yes
+  loop:
+    - "alias ll='ls -alF'"
+    - "alias la='ls -A'"
+    - "alias l='ls -CF'"
+    - "alias grep='grep --color=auto'"
+    - "alias fgrep='fgrep --color=auto'"
+    - "alias egrep='egrep --color=auto'"
+    - "alias df='df -h'"
+    - "alias du='du -h'"
+    - "alias free='free -h'"
+    - "alias ps='ps aux'"
+    - "alias top='htop'"
+
+- name: Configure system-wide environment variables
+  lineinfile:
+    path: /etc/environment
+    line: "{{ item }}"
+  loop:
+    - "EDITOR=vim"
+    - "PAGER=less"
+    - "LESS=-R"
+
+- name: Create system monitoring script
+  copy:
+    content: |
+      #!/bin/bash
+      # System monitoring script
+      
+      echo "=== System Information ==="
+      echo "Hostname: $(hostname)"
+      echo "Uptime: $(uptime)"
+      echo "Load: $(cat /proc/loadavg)"
+      echo
+      
+      echo "=== Memory Usage ==="
+      free -h
+      echo
+      
+      echo "=== Disk Usage ==="
+      df -h
+      echo
+      
+      echo "=== Network Interfaces ==="
+      ip addr show
+      echo
+      
+      echo "=== Active Connections ==="
+      ss -tuln
+      echo
+      
+      echo "=== Running Processes (top 10 by CPU) ==="
+      ps aux --sort=-%cpu | head -11
+      echo
+      
+      echo "=== Running Processes (top 10 by Memory) ==="
+      ps aux --sort=-%mem | head -11
+    dest: /usr/local/bin/sysinfo
+    mode: '0755'
+
+- name: Create log analysis script
+  copy:
+    content: |
+      #!/bin/bash
+      # Log analysis script
+      
+      LOG_DIR="/var/log"
+      
+      echo "=== Recent System Errors ==="
+      journalctl -p err -n 20 --no-pager
+      echo
+      
+      echo "=== Auth Log Summary ==="
+      if [ -f "$LOG_DIR/auth.log" ]; then
+          tail -50 "$LOG_DIR/auth.log" | grep -E "(Failed|Accepted)" | tail -10
+      fi
+      echo
+      
+      echo "=== Kernel Messages ==="
+      dmesg | tail -20
+      echo
+      
+      echo "=== Failed Services ==="
+      systemctl --failed --no-pager
+    dest: /usr/local/bin/logcheck
+    mode: '0755'
+
+- name: Configure logrotate for custom logs
+  copy:
+    content: |
+      /var/log/ansible/*.log {
+          weekly
+          missingok
+          rotate 4
+          compress
+          delaycompress
+          notifempty
+          copytruncate
+      }
+      
+      /var/log/installer/*.log {
+          weekly
+          missingok
+          rotate 4
+          compress
+          delaycompress
+          notifempty
+          copytruncate
+      }
+    dest: /etc/logrotate.d/custom-logs
+    mode: '0644'

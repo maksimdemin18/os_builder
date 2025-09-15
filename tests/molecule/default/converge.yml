@@ -1,0 +1,18 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  vars:
+    profile: base
+  tasks:
+    - name: Include baseline role
+      include_role:
+        name: baseline
+    
+    - name: Include tooling role
+      include_role:
+        name: tooling
+    
+    - name: Include monitoring role
+      include_role:
+        name: monitoring

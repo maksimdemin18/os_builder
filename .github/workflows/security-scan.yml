@@ -1,0 +1,122 @@
+name: Security Scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scan every day at 3:00 AM UTC
+    - cron: '0 3 * * *'
+
+jobs:
+  scan-code:
+    name: Scan Code
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Scan for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+
+  scan-containers:
+    name: Scan Container Images
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download latest ISO artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ubuntu-24.04-*-iso
+          path: artifacts/
+        continue-on-error: true
+
+      - name: Scan ISO files
+        run: |
+          if [ -d "artifacts/" ]; then
+            find artifacts/ -name "*.iso" | while read iso; do
+              echo "Scanning $iso"
+              # Mount ISO and scan contents
+              mkdir -p /tmp/iso_mount
+              sudo mount -o loop "$iso" /tmp/iso_mount || continue
+              
+              # Run basic security checks
+              echo "Checking for suspicious files..."
+              find /tmp/iso_mount -name "*.sh" -exec grep -l "curl.*|.*sh" {} \; || true
+              find /tmp/iso_mount -name "*.py" -exec grep -l "eval\|exec" {} \; || true
+              
+              sudo umount /tmp/iso_mount
+              rmdir /tmp/iso_mount
+            done
+          else
+            echo "No ISO artifacts found to scan"
+          fi
+
+  audit-dependencies:
+    name: Audit Dependencies
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install safety pip-audit
+
+      - name: Audit Python packages
+        run: |
+          # Create requirements file from Ansible roles
+          find ansible/ -name "*.yml" -exec grep -h "pip:" {} \; | \
+            grep -o "name: [^}]*" | cut -d' ' -f2 | sort -u > requirements.txt
+          
+          if [ -s requirements.txt ]; then
+            echo "Auditing Python packages..."
+            pip-audit -r requirements.txt || true
+            safety check -r requirements.txt || true
+          else
+            echo "No Python packages found to audit"
+          fi
+
+      - name: Check for known vulnerabilities in system packages
+        run: |
+          # Extract package lists from profiles
+          find profiles/ -name "*.yaml" -exec grep -A 10 "packages:" {} \; | \
+            grep "^  - " | sed 's/^  - //' | sort -u > system-packages.txt
+          
+          echo "System packages to be installed:"
+          cat system-packages.txt
+          
+          # Note: In a real environment, you would check these against
+          # vulnerability databases like CVE or Ubuntu Security Notices

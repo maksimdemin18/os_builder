@@ -1,0 +1,102 @@
+# Профиль ATPM (Automated Test Pattern Management)
+# Система для автоматизированного управления тестовыми паттернами
+
+name: atpm
+description: "ATPM система для управления тестовыми паттернами"
+version: "1.0.0"
+
+# Ansible роли для применения
+roles:
+  - baseline
+  - tooling
+  - monitoring
+  - profile/atpm
+
+# Дополнительные пакеты
+packages:
+  - python3-dev
+  - python3-pip
+  - python3-venv
+  - nodejs
+  - npm
+  - openjdk-11-jdk
+  - maven
+  - gradle
+  - sqlite3
+  - postgresql-client
+  - git-lfs
+
+# Файл переменных для Ansible
+vars_file: ansible/roles/vars/atpm.yml
+
+# Сервисы для включения/отключения
+services:
+  enable:
+    - ssh
+    - auditd
+    - systemd-timesyncd
+  disable:
+    - bluetooth
+    - cups
+    - avahi-daemon
+
+# Дополнительные пользователи
+users:
+  - name: atpmuser
+    groups: [developers]
+    shell: /bin/bash
+    home: /home/atpmuser
+
+# Настройки системы
+system:
+  timezone: "UTC"
+  locale: "en_US.UTF-8"
+  keyboard: "us"
+  
+# Настройки сети
+network:
+  hostname_prefix: "ubuntu-atpm"
+  
+# Мониторинг
+monitoring:
+  enabled: true
+  zabbix_enabled: true
+  prometheus_enabled: true
+  loki_enabled: false
+
+# Целевой размер установленной системы (в GB)
+target_size: 6
+
+# Дополнительные репозитории
+repositories:
+  - name: "nodejs"
+    url: "deb https://deb.nodesource.com/node_18.x focal main"
+    key: "https://deb.nodesource.com/gpgkey/nodesource.gpg.key"
+
+# Конфигурационные файлы
+config_files:
+  - src: "atpm/atpm.conf"
+    dest: "/etc/atpm/atpm.conf"
+  - src: "atpm/test-runner.yml"
+    dest: "/opt/atpm/config/test-runner.yml"
+
+# Пост-инсталляционные скрипты
+post_install_scripts:
+  - "atpm/setup-java.sh"
+  - "atpm/setup-nodejs.sh"
+  - "atpm/install-atpm-tools.sh"
+
+# Специфичные настройки ATPM
+atpm_config:
+  java_version: "11"
+  nodejs_version: "18"
+  test_frameworks:
+    - junit
+    - testng
+    - jest
+    - mocha
+  tools:
+    - maven
+    - gradle
+    - npm
+    - yarn

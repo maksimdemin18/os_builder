@@ -1,0 +1,125 @@
+name: Update Base Ubuntu Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      ubuntu_version:
+        description: 'Ubuntu version to update to'
+        required: true
+        default: '24.04'
+        type: string
+      force_rebuild:
+        description: 'Force rebuild even if no changes'
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Check for updates every Sunday at 1:00 AM UTC
+    - cron: '0 1 * * 0'
+
+jobs:
+  check-updates:
+    name: Check for Ubuntu Updates
+    runs-on: ubuntu-22.04
+    outputs:
+      update-available: ${{ steps.check.outputs.update-available }}
+      new-iso-url: ${{ steps.check.outputs.new-iso-url }}
+      new-checksum: ${{ steps.check.outputs.new-checksum }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for new Ubuntu ISO
+        id: check
+        run: |
+          VERSION="${{ github.event.inputs.ubuntu_version || '24.04' }}"
+          
+          # Get current ISO info from variables.pkr.hcl
+          CURRENT_URL=$(grep -o 'https://releases.ubuntu.com/[^"]*' packer/variables.pkr.hcl | head -1)
+          CURRENT_CHECKSUM=$(grep -A1 'iso_checksum' packer/variables.pkr.hcl | grep 'sha256:' | cut -d'"' -f2)
+          
+          # Check latest ISO
+          LATEST_URL="https://releases.ubuntu.com/${VERSION}/ubuntu-${VERSION}.1-live-server-amd64.iso"
+          
+          # Get checksum from Ubuntu
+          CHECKSUMS_URL="https://releases.ubuntu.com/${VERSION}/SHA256SUMS"
+          LATEST_CHECKSUM=$(curl -s "$CHECKSUMS_URL" | grep "ubuntu-${VERSION}.1-live-server-amd64.iso" | cut -d' ' -f1)
+          
+          if [[ "$CURRENT_CHECKSUM" != "sha256:$LATEST_CHECKSUM" ]] || [[ "${{ github.event.inputs.force_rebuild }}" == "true" ]]; then
+            echo "update-available=true" >> $GITHUB_OUTPUT
+            echo "new-iso-url=$LATEST_URL" >> $GITHUB_OUTPUT
+            echo "new-checksum=sha256:$LATEST_CHECKSUM" >> $GITHUB_OUTPUT
+            echo "Update available: $LATEST_CHECKSUM"
+          else
+            echo "update-available=false" >> $GITHUB_OUTPUT
+            echo "No update available"
+          fi
+
+  update-config:
+    name: Update Configuration
+    runs-on: ubuntu-22.04
+    needs: check-updates
+    if: needs.check-updates.outputs.update-available == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Packer variables
+        run: |
+          NEW_URL="${{ needs.check-updates.outputs.new-iso-url }}"
+          NEW_CHECKSUM="${{ needs.check-updates.outputs.new-checksum }}"
+          
+          # Update variables.pkr.hcl
+          sed -i "s|https://releases.ubuntu.com/[^\"]*|$NEW_URL|g" packer/variables.pkr.hcl
+          sed -i "s|sha256:[^\"]*|$NEW_CHECKSUM|g" packer/variables.pkr.hcl
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update Ubuntu base image to latest"
+          title: "Update Ubuntu base image"
+          body: |
+            ## Ubuntu Base Image Update
+            
+            This PR updates the Ubuntu base image to the latest available version.
+            
+            **Changes:**
+            - ISO URL: ${{ needs.check-updates.outputs.new-iso-url }}
+            - Checksum: ${{ needs.check-updates.outputs.new-checksum }}
+            
+            **Verification:**
+            - [ ] ISO downloads successfully
+            - [ ] Checksum matches
+            - [ ] All profiles build successfully
+            - [ ] Basic functionality tests pass
+            
+            This PR was created automatically by the update workflow.
+          branch: update-ubuntu-base
+          delete-branch: true
+
+  trigger-build:
+    name: Trigger Build
+    runs-on: ubuntu-22.04
+    needs: [check-updates, update-config]
+    if: needs.check-updates.outputs.update-available == 'true'
+    
+    steps:
+      - name: Trigger build workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build-iso.yml',
+              ref: 'update-ubuntu-base',
+              inputs: {
+                profiles: 'base',
+                verify_iso: 'true'
+              }
+            });

@@ -1,0 +1,181 @@
+---
+# AKTS профиль с Docker
+
+- name: Create AKTS profile marker
+  file:
+    path: /etc/profile.d/00-akts-profile.sh
+    state: touch
+    mode: '0644'
+
+- name: Set AKTS profile environment
+  lineinfile:
+    path: /etc/profile.d/00-akts-profile.sh
+    line: "{{ item }}"
+  loop:
+    - "export OS_PROFILE=akts"
+    - "export OS_PROFILE_VERSION=1.0.0"
+    - "export OS_BUILD_TYPE=containerized"
+    - "export AKTS_HOME={{ akts_config.home_dir }}"
+    - "export AKTS_CONFIG={{ akts_config.config_dir }}"
+    - "export JAVA_HOME={{ java_home }}"
+
+- name: Create AKTS directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ akts_config.home_dir }}"
+    - "{{ akts_config.config_dir }}"
+    - "{{ akts_config.log_dir }}"
+    - "{{ akts_config.data_dir }}"
+
+- name: Install Java JDK
+  apt:
+    name: "openjdk-{{ java_version }}-jdk"
+    state: present
+
+- name: Install Node.js and npm
+  apt:
+    name:
+      - nodejs
+      - npm
+    state: present
+
+- name: Install global npm packages
+  npm:
+    name: "{{ item }}"
+    global: yes
+    state: present
+  loop: "{{ npm_global_packages }}"
+
+- name: Install Python packages for AKTS
+  pip:
+    name: "{{ python_packages }}"
+    state: present
+    executable: pip3
+
+- name: Install Kubernetes tools
+  get_url:
+    url: "{{ item.value.url }}"
+    dest: "/tmp/{{ item.key }}"
+    mode: '0755'
+  loop: "{{ kubernetes_tools | dict2items }}"
+  when: item.key == 'kubectl'
+
+- name: Install kubectl
+  copy:
+    src: "/tmp/kubectl"
+    dest: "/usr/local/bin/kubectl"
+    mode: '0755'
+    remote_src: yes
+
+- name: Download and install Helm
+  unarchive:
+    src: "{{ kubernetes_tools.helm.url }}"
+    dest: /tmp
+    remote_src: yes
+    creates: /tmp/linux-amd64/helm
+
+- name: Install Helm binary
+  copy:
+    src: /tmp/linux-amd64/helm
+    dest: /usr/local/bin/helm
+    mode: '0755'
+    remote_src: yes
+
+- name: Download and install k9s
+  unarchive:
+    src: "{{ kubernetes_tools.k9s.url }}"
+    dest: /tmp
+    remote_src: yes
+    creates: /tmp/k9s
+
+- name: Install k9s binary
+  copy:
+    src: /tmp/k9s
+    dest: /usr/local/bin/k9s
+    mode: '0755'
+    remote_src: yes
+
+- name: Create Docker network for AKTS
+  docker_network:
+    name: "{{ item.name }}"
+    driver: "{{ item.driver }}"
+    ipam_config:
+      - subnet: "{{ item.subnet }}"
+        gateway: "{{ item.gateway }}"
+  loop: "{{ docker_networks }}"
+
+- name: Create AKTS configuration file
+  template:
+    src: akts.conf.j2
+    dest: "{{ akts_config.config_dir }}/akts.conf"
+    mode: '0644'
+
+- name: Create AKTS Docker Compose file
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ akts_config.home_dir }}/docker-compose.yml"
+    mode: '0644'
+
+- name: Create AKTS systemd service
+  copy:
+    content: |
+      [Unit]
+      Description=AKTS Container Services
+      Requires=docker.service
+      After=docker.service
+      
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory={{ akts_config.home_dir }}
+      ExecStart=/usr/local/bin/docker-compose up -d
+      ExecStop=/usr/local/bin/docker-compose down
+      TimeoutStartSec=0
+      
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/akts.service
+    mode: '0644'
+
+- name: Enable AKTS service
+  systemd:
+    name: akts
+    enabled: yes
+    daemon_reload: yes
+
+- name: Create AKTS profile info file
+  copy:
+    content: |
+      Profile: akts
+      Description: AKTS система с Docker
+      Version: 1.0.0
+      Build Date: {{ ansible_date_time.iso8601 }}
+      
+      Included Components:
+      - Docker Engine
+      - Docker Compose
+      - Kubernetes tools (kubectl, helm, k9s)
+      - Java {{ java_version }} JDK
+      - Node.js {{ nodejs_version }}
+      - AKTS services
+      
+      Services:
+      - AKTS API: http://localhost:{{ akts_config.api_port }}
+      - AKTS Admin: http://localhost:{{ akts_config.admin_port }}
+      - AKTS Worker: http://localhost:{{ akts_config.worker_port }}
+      - AKTS Scheduler: http://localhost:{{ akts_config.scheduler_port }}
+      
+      Container Registry: {{ container_registry.url }}
+      
+      Directories:
+      - Home: {{ akts_config.home_dir }}
+      - Config: {{ akts_config.config_dir }}
+      - Logs: {{ akts_config.log_dir }}
+      - Data: {{ akts_config.data_dir }}
+    dest: /etc/profile-info
+    mode: '0644'

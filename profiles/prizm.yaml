@@ -1,0 +1,99 @@
+# Профиль Prizm
+# Система для работы с Prizm платформой
+
+name: prizm
+description: "Prizm система с специализированными компонентами"
+version: "1.0.0"
+
+# Ansible роли для применения
+roles:
+  - baseline
+  - tooling
+  - monitoring
+  - profile/prizm
+
+# Дополнительные пакеты
+packages:
+  - openjdk-11-jdk
+  - python3-dev
+  - python3-pip
+  - nodejs
+  - npm
+  - redis-server
+  - postgresql-client
+  - nginx
+  - supervisor
+
+# Файл переменных для Ansible
+vars_file: ansible/roles/vars/prizm.yml
+
+# Сервисы для включения/отключения
+services:
+  enable:
+    - ssh
+    - auditd
+    - systemd-timesyncd
+    - redis-server
+    - nginx
+    - supervisor
+  disable:
+    - bluetooth
+    - cups
+    - avahi-daemon
+
+# Дополнительные пользователи
+users:
+  - name: prizmuser
+    groups: [www-data]
+    shell: /bin/bash
+    home: /home/prizmuser
+
+# Настройки системы
+system:
+  timezone: "UTC"
+  locale: "en_US.UTF-8"
+  keyboard: "us"
+  
+# Настройки сети
+network:
+  hostname_prefix: "ubuntu-prizm"
+  
+# Мониторинг
+monitoring:
+  enabled: true
+  zabbix_enabled: true
+  prometheus_enabled: true
+  loki_enabled: true
+
+# Целевой размер установленной системы (в GB)
+target_size: 7
+
+# Дополнительные репозитории
+repositories:
+  - name: "nginx"
+    url: "deb http://nginx.org/packages/ubuntu/ focal nginx"
+    key: "https://nginx.org/keys/nginx_signing.key"
+
+# Конфигурационные файлы
+config_files:
+  - src: "prizm/prizm.conf"
+    dest: "/etc/prizm/prizm.conf"
+  - src: "prizm/nginx.conf"
+    dest: "/etc/nginx/sites-available/prizm"
+  - src: "prizm/supervisor.conf"
+    dest: "/etc/supervisor/conf.d/prizm.conf"
+
+# Пост-инсталляционные скрипты
+post_install_scripts:
+  - "prizm/setup-java.sh"
+  - "prizm/setup-nginx.sh"
+  - "prizm/install-prizm-components.sh"
+
+# Специфичные настройки Prizm
+prizm_config:
+  java_version: "11"
+  web_server: "nginx"
+  cache_server: "redis"
+  process_manager: "supervisor"
+  application_port: 8080
+  admin_port: 8081

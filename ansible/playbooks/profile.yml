@@ -1,0 +1,44 @@
+---
+- name: Configure system profile
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    os_profile_file: /etc/os-profile
+    
+  pre_tasks:
+    - name: Read selected profile
+      slurp:
+        src: "{{ os_profile_file }}"
+      register: prof_raw
+      failed_when: false
+      
+    - name: Set profile fact
+      set_fact:
+        os_profile: "{{ (prof_raw.content | b64decode).strip() | default('base') }}"
+      when: prof_raw.content is defined
+      
+    - name: Set default profile if file not found
+      set_fact:
+        os_profile: "base"
+      when: prof_raw.content is not defined
+      
+    - name: Display selected profile
+      debug:
+        msg: "Configuring profile: {{ os_profile }}"
+        
+    - name: Load profile variables
+      include_vars: "vars/{{ os_profile }}.yml"
+      failed_when: false
+      
+  roles:
+    - role: "profile/{{ os_profile }}"
+      when: os_profile is defined
+      
+  post_tasks:
+    - name: Log profile configuration completion
+      lineinfile:
+        path: /var/log/ansible/profile.log
+        line: "{{ ansible_date_time.iso8601 }}: Profile '{{ os_profile }}' configuration completed"
+        create: yes

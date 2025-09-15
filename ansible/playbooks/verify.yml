@@ -1,0 +1,145 @@
+---
+- name: Verify system configuration
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    max_root_size_gb: 4
+    
+  tasks:
+    - name: Check EFI boot partition exists
+      stat:
+        path: /boot/efi
+      register: efi_check
+      
+    - name: Verify EFI partition is mounted
+      assert:
+        that: efi_check.stat.exists and efi_check.stat.isdir
+        fail_msg: "EFI boot partition not found or not mounted"
+        success_msg: "EFI boot partition verified"
+        
+    - name: Check swap configuration
+      command: swapon --show
+      register: swap_check
+      changed_when: false
+      failed_when: false
+      
+    - name: Verify swap is active
+      assert:
+        that: "'/swapfile' in swap_check.stdout"
+        fail_msg: "Swap file not active"
+        success_msg: "Swap file is active"
+        
+    - name: Check root filesystem size
+      shell: "df -BG --output=used / | tail -1 | tr -d 'G '"
+      register: root_size
+      changed_when: false
+      
+    - name: Verify root filesystem size (base profile only)
+      assert:
+        that: "root_size.stdout | int <= max_root_size_gb"
+        fail_msg: "Root filesystem too large: {{ root_size.stdout }}GB > {{ max_root_size_gb }}GB"
+        success_msg: "Root filesystem size OK: {{ root_size.stdout }}GB"
+      when: os_profile | default('base') == 'base'
+      
+    - name: Check required users exist
+      user:
+        name: "{{ item }}"
+        state: present
+      register: user_check
+      loop:
+        - support
+        - tech
+      check_mode: yes
+      
+    - name: Verify support user has sudo access
+      command: groups support
+      register: support_groups
+      changed_when: false
+      
+    - name: Assert support user in sudo group
+      assert:
+        that: "'sudo' in support_groups.stdout"
+        fail_msg: "Support user not in sudo group"
+        success_msg: "Support user has sudo access"
+        
+    - name: Check auditd service
+      systemd:
+        name: auditd
+      register: auditd_status
+      
+    - name: Verify auditd is enabled and running
+      assert:
+        that: 
+          - auditd_status.status.ActiveState == "active"
+          - auditd_status.status.UnitFileState == "enabled"
+        fail_msg: "Auditd service not properly configured"
+        success_msg: "Auditd service is active and enabled"
+        
+    - name: Check SSH service
+      systemd:
+        name: ssh
+      register: ssh_status
+      
+    - name: Verify SSH is enabled and running
+      assert:
+        that:
+          - ssh_status.status.ActiveState == "active"
+          - ssh_status.status.UnitFileState == "enabled"
+        fail_msg: "SSH service not properly configured"
+        success_msg: "SSH service is active and enabled"
+        
+    - name: Check monitoring services (if profile includes monitoring)
+      systemd:
+        name: "{{ item }}"
+      register: monitoring_services
+      loop:
+        - zabbix-agent2
+        - node_exporter
+      failed_when: false
+      when: monitoring_enabled | default(false)
+      
+    - name: Verify system profile file
+      stat:
+        path: /etc/os-profile
+      register: profile_file
+      
+    - name: Assert profile file exists
+      assert:
+        that: profile_file.stat.exists
+        fail_msg: "System profile file not found"
+        success_msg: "System profile file exists"
+        
+    - name: Read and verify profile content
+      slurp:
+        src: /etc/os-profile
+      register: profile_content
+      
+    - name: Display current profile
+      debug:
+        msg: "Current system profile: {{ (profile_content.content | b64decode).strip() }}"
+        
+    - name: Check disk space usage
+      shell: "df -h /"
+      register: disk_usage
+      changed_when: false
+      
+    - name: Display disk usage
+      debug:
+        msg: "Root filesystem usage: {{ disk_usage.stdout_lines[1] }}"
+        
+    - name: Check memory and swap
+      shell: "free -h"
+      register: memory_info
+      changed_when: false
+      
+    - name: Display memory information
+      debug:
+        msg: "{{ memory_info.stdout }}"
+        
+    - name: Log verification completion
+      lineinfile:
+        path: /var/log/ansible/verify.log
+        line: "{{ ansible_date_time.iso8601 }}: System verification completed successfully"
+        create: yes

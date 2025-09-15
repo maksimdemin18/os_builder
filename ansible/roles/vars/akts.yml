@@ -1,0 +1,114 @@
+---
+# Переменные для профиля AKTS
+
+# Наследование базовых настроек
+system_timezone: "UTC"
+system_locale: "en_US.UTF-8"
+
+# SSH ключи
+support_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL support@os-builder"
+tech_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL tech@os-builder"
+
+# Мониторинг
+install_zabbix: true
+install_node_exporter: true
+install_promtail: true
+monitoring_enabled: true
+
+# Версии компонентов
+node_exporter_version: "1.6.1"
+promtail_version: "2.9.0"
+docker_compose_version: "2.21.0"
+
+# Настройки мониторинга
+zabbix_server: "zabbix.akts.local"
+prometheus_server: "prometheus.akts.local"
+loki_url: "http://loki.akts.local:3100"
+
+# Docker настройки
+docker_daemon_config:
+  log-driver: "json-file"
+  log-opts:
+    max-size: "10m"
+    max-file: "3"
+  storage-driver: "overlay2"
+  live-restore: true
+  userland-proxy: false
+  experimental: false
+  insecure-registries:
+    - "registry.akts.local:5000"
+
+# Kubernetes инструменты
+kubernetes_tools:
+  kubectl:
+    version: "1.28.0"
+    url: "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+  helm:
+    version: "3.12.0"
+    url: "https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz"
+  k9s:
+    version: "0.27.4"
+    url: "https://github.com/derailed/k9s/releases/download/v0.27.4/k9s_Linux_amd64.tar.gz"
+
+# AKTS специфичные настройки
+akts_config:
+  api_port: 8080
+  admin_port: 8081
+  worker_port: 8082
+  scheduler_port: 8083
+  
+  # Директории
+  home_dir: "/opt/akts"
+  config_dir: "/etc/akts"
+  log_dir: "/var/log/akts"
+  data_dir: "/var/lib/akts"
+  
+  # Сервисы
+  services:
+    - name: "akts-api"
+      port: 8080
+      replicas: 2
+    - name: "akts-worker"
+      port: 8082
+      replicas: 3
+    - name: "akts-scheduler"
+      port: 8083
+      replicas: 1
+
+# Контейнерный реестр
+container_registry:
+  url: "registry.akts.local:5000"
+  username: "akts"
+  password: "akts123"
+
+# Java настройки
+java_version: "11"
+java_home: "/usr/lib/jvm/java-11-openjdk-amd64"
+
+# Node.js настройки
+nodejs_version: "18"
+npm_global_packages:
+  - "@akts/cli"
+  - "pm2"
+  - "nodemon"
+
+# Python пакеты
+python_packages:
+  - "akts-client"
+  - "kubernetes"
+  - "docker"
+  - "pyyaml"
+  - "requests"
+
+# Настройки производительности для контейнеров
+container_limits:
+  memory_limit: "2g"
+  cpu_limit: "1.0"
+  pids_limit: 1024
+
+# Сетевые настройки Docker
+docker_networks:
+  - name: "akts-network"
+    driver: "bridge"
+    subnet: "172.20.0.0/16"
+    gateway: "172.20.0.1"

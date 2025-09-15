@@ -1,0 +1,286 @@
+---
+- name: Install monitoring packages
+  apt:
+    name:
+      - auditd
+      - audispd-plugins
+      - rsyslog
+      - logrotate
+    state: present
+
+- name: Configure auditd rules
+  copy:
+    content: |
+      # Remove all previous rules
+      -D
+      
+      # Set buffer size
+      -b 8192
+      
+      # Failure mode (0=silent, 1=printk, 2=panic)
+      -f 1
+      
+      # Monitor user and group changes
+      -w /etc/passwd -p wa -k identity
+      -w /etc/group -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      -w /etc/sudoers -p wa -k identity
+      -w /etc/sudoers.d/ -p wa -k identity
+      
+      # Monitor system time changes
+      -a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change
+      -a always,exit -F arch=b32 -S adjtimex -S settimeofday -S stime -k time-change
+      -a always,exit -F arch=b64 -S clock_settime -k time-change
+      -a always,exit -F arch=b32 -S clock_settime -k time-change
+      -w /etc/localtime -p wa -k time-change
+      
+      # Monitor network configuration changes
+      -w /etc/issue -p wa -k system-locale
+      -w /etc/issue.net -p wa -k system-locale
+      -w /etc/hosts -p wa -k system-locale
+      -w /etc/network/ -p wa -k system-locale
+      -w /etc/netplan/ -p wa -k system-locale
+      
+      # Monitor login/logout events
+      -w /var/log/faillog -p wa -k logins
+      -w /var/log/lastlog -p wa -k logins
+      -w /var/log/tallylog -p wa -k logins
+      
+      # Monitor process and session initiation
+      -w /var/run/utmp -p wa -k session
+      -w /var/log/wtmp -p wa -k logins
+      -w /var/log/btmp -p wa -k logins
+      
+      # Monitor system administration actions
+      -w /etc/sudoers -p wa -k actions
+      -w /etc/sudoers.d/ -p wa -k actions
+      
+      # Monitor kernel module loading/unloading
+      -w /sbin/insmod -p x -k modules
+      -w /sbin/rmmod -p x -k modules
+      -w /sbin/modprobe -p x -k modules
+      -a always,exit -F arch=b64 -S init_module -S delete_module -k modules
+      
+      # Monitor file system mounts
+      -a always,exit -F arch=b64 -S mount -k mounts
+      -a always,exit -F arch=b32 -S mount -k mounts
+      
+      # Monitor file deletions
+      -a always,exit -F arch=b64 -S unlink -S unlinkat -S rename -S renameat -k delete
+      -a always,exit -F arch=b32 -S unlink -S unlinkat -S rename -S renameat -k delete
+      
+      # Monitor changes to system mandatory access controls
+      -w /etc/selinux/ -p wa -k MAC-policy
+      -w /usr/share/selinux/ -p wa -k MAC-policy
+      
+      # Monitor SSH configuration
+      -w /etc/ssh/sshd_config -p wa -k sshd
+      
+      # Make the configuration immutable
+      -e 2
+    dest: /etc/audit/rules.d/audit.rules
+    mode: '0640'
+  notify: restart auditd
+
+- name: Configure auditd main configuration
+  lineinfile:
+    path: /etc/audit/auditd.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  loop:
+    - { regexp: '^log_file =', line: 'log_file = /var/log/audit/audit.log' }
+    - { regexp: '^log_format =', line: 'log_format = RAW' }
+    - { regexp: '^log_group =', line: 'log_group = adm' }
+    - { regexp: '^max_log_file =', line: 'max_log_file = 50' }
+    - { regexp: '^max_log_file_action =', line: 'max_log_file_action = ROTATE' }
+    - { regexp: '^num_logs =', line: 'num_logs = 5' }
+    - { regexp: '^space_left =', line: 'space_left = 75' }
+    - { regexp: '^space_left_action =', line: 'space_left_action = SYSLOG' }
+    - { regexp: '^admin_space_left =', line: 'admin_space_left = 50' }
+    - { regexp: '^admin_space_left_action =', line: 'admin_space_left_action = SUSPEND' }
+  notify: restart auditd
+
+- name: Install Zabbix agent repository
+  apt:
+    deb: "https://repo.zabbix.com/zabbix/6.4/ubuntu/pool/main/z/zabbix-release/zabbix-release_6.4-1+ubuntu{{ ansible_distribution_version }}_all.deb"
+    state: present
+  when: install_zabbix | default(true)
+
+- name: Update apt cache after adding Zabbix repository
+  apt:
+    update_cache: yes
+  when: install_zabbix | default(true)
+
+- name: Install Zabbix agent 2
+  apt:
+    name: zabbix-agent2
+    state: present
+  when: install_zabbix | default(true)
+
+- name: Configure Zabbix agent 2
+  template:
+    src: zabbix_agent2.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.conf
+    backup: yes
+    mode: '0644'
+  notify: restart zabbix-agent2
+  when: install_zabbix | default(true)
+
+- name: Install Node Exporter for Prometheus
+  block:
+    - name: Create node_exporter user
+      user:
+        name: node_exporter
+        system: yes
+        shell: /bin/false
+        home: /var/lib/node_exporter
+        create_home: no
+
+    - name: Download and install Node Exporter
+      unarchive:
+        src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version | default('1.6.1') }}/node_exporter-{{ node_exporter_version | default('1.6.1') }}.linux-amd64.tar.gz"
+        dest: /tmp
+        remote_src: yes
+        creates: "/tmp/node_exporter-{{ node_exporter_version | default('1.6.1') }}.linux-amd64"
+
+    - name: Copy Node Exporter binary
+      copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version | default('1.6.1') }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        mode: '0755'
+        owner: node_exporter
+        group: node_exporter
+        remote_src: yes
+
+    - name: Create Node Exporter systemd service
+      copy:
+        content: |
+          [Unit]
+          Description=Node Exporter
+          Wants=network-online.target
+          After=network-online.target
+          
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter --web.listen-address=:9100
+          Restart=always
+          RestartSec=3
+          
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/node_exporter.service
+        mode: '0644'
+      notify: 
+        - reload systemd
+        - restart node_exporter
+
+  when: install_node_exporter | default(true)
+
+- name: Install Promtail for Loki
+  block:
+    - name: Create promtail user
+      user:
+        name: promtail
+        system: yes
+        shell: /bin/false
+        home: /var/lib/promtail
+        create_home: yes
+
+    - name: Download and install Promtail
+      unarchive:
+        src: "https://github.com/grafana/loki/releases/download/v{{ promtail_version | default('2.9.0') }}/promtail-linux-amd64.zip"
+        dest: /tmp
+        remote_src: yes
+        creates: /tmp/promtail-linux-amd64
+
+    - name: Copy Promtail binary
+      copy:
+        src: /tmp/promtail-linux-amd64
+        dest: /usr/local/bin/promtail
+        mode: '0755'
+        owner: promtail
+        group: promtail
+        remote_src: yes
+
+    - name: Create Promtail configuration directory
+      file:
+        path: /etc/promtail
+        state: directory
+        owner: promtail
+        group: promtail
+        mode: '0755'
+
+    - name: Configure Promtail
+      template:
+        src: promtail.yml.j2
+        dest: /etc/promtail/promtail.yml
+        owner: promtail
+        group: promtail
+        mode: '0644'
+      notify: restart promtail
+
+    - name: Create Promtail systemd service
+      copy:
+        content: |
+          [Unit]
+          Description=Promtail service
+          After=network.target
+          
+          [Service]
+          Type=simple
+          User=promtail
+          Group=promtail
+          ExecStart=/usr/local/bin/promtail -config.file /etc/promtail/promtail.yml
+          Restart=always
+          RestartSec=3
+          
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/promtail.service
+        mode: '0644'
+      notify:
+        - reload systemd
+        - restart promtail
+
+  when: install_promtail | default(true)
+
+- name: Enable and start monitoring services
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  loop:
+    - auditd
+    - zabbix-agent2
+    - node_exporter
+    - promtail
+  failed_when: false
+
+handlers:
+  - name: restart auditd
+    systemd:
+      name: auditd
+      state: restarted
+
+  - name: restart zabbix-agent2
+    systemd:
+      name: zabbix-agent2
+      state: restarted
+
+  - name: reload systemd
+    systemd:
+      daemon_reload: yes
+
+  - name: restart node_exporter
+    systemd:
+      name: node_exporter
+      state: restarted
+
+  - name: restart promtail
+    systemd:
+      name: promtail
+      state: restarted

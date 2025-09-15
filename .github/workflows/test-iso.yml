@@ -1,0 +1,78 @@
+name: Test ISO Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type'
+        required: true
+        default: 'boot'
+        type: choice
+        options:
+          - boot
+          - install
+          - full
+      profiles:
+        description: 'Profiles to test (comma-separated or "all")'
+        required: true
+        default: 'all'
+        type: string
+  workflow_run:
+    workflows: ["Build Ubuntu 24.04 LTS ISO Images"]
+    types:
+      - completed
+
+jobs:
+  test:
+    name: Test ISO (${{ matrix.profile }})
+    runs-on: ubuntu-22.04
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ["base", "dw", "atpm", "arm", "prizm", "akts"]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-kvm qemu-utils
+          sudo usermod -a -G kvm $USER
+
+      - name: Download ISO artifacts
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: ubuntu-24.04-${{ matrix.profile }}-iso
+          path: live-build/dist/
+
+      - name: Test ISO
+        working-directory: live-build
+        run: |
+          TEST_TYPE="${{ github.event.inputs.test_type || 'boot' }}"
+          
+          if [ -f "dist/ubuntu-24.04-${{ matrix.profile }}-latest.iso" ]; then
+            sudo ./test-iso.sh --test-type "$TEST_TYPE" \
+              "dist/ubuntu-24.04-${{ matrix.profile }}-latest.iso"
+          else
+            echo "ISO not found for profile ${{ matrix.profile }}"
+            exit 1
+          fi
+
+      - name: Generate test report
+        if: always()
+        working-directory: live-build
+        run: |
+          sudo ./test-iso.sh --report
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.profile }}
+          path: |
+            live-build/test-results/
+          retention-days: 7

@@ -1,0 +1,104 @@
+# Профиль AKTS (с Docker)
+# Система AKTS с поддержкой контейнеризации
+
+name: akts
+description: "AKTS система с Docker и контейнерными инструментами"
+version: "1.0.0"
+
+# Ansible роли для применения
+roles:
+  - baseline
+  - tooling
+  - monitoring
+  - docker
+  - profile/akts
+
+# Дополнительные пакеты
+packages:
+  - python3-dev
+  - python3-pip
+  - nodejs
+  - npm
+  - openjdk-11-jdk
+  - postgresql-client
+  - redis-tools
+  - kubernetes-client
+
+# Файл переменных для Ansible
+vars_file: ansible/roles/vars/akts.yml
+
+# Сервисы для включения/отключения
+services:
+  enable:
+    - ssh
+    - auditd
+    - systemd-timesyncd
+    - docker
+  disable:
+    - bluetooth
+    - cups
+    - avahi-daemon
+
+# Дополнительные пользователи
+users:
+  - name: aktsuser
+    groups: [docker]
+    shell: /bin/bash
+    home: /home/aktsuser
+
+# Настройки системы
+system:
+  timezone: "UTC"
+  locale: "en_US.UTF-8"
+  keyboard: "us"
+  
+# Настройки сети
+network:
+  hostname_prefix: "ubuntu-akts"
+  
+# Мониторинг
+monitoring:
+  enabled: true
+  zabbix_enabled: true
+  prometheus_enabled: true
+  loki_enabled: true
+
+# Целевой размер установленной системы (в GB)
+target_size: 8
+
+# Дополнительные репозитории
+repositories:
+  - name: "docker"
+    url: "deb https://download.docker.com/linux/ubuntu focal stable"
+    key: "https://download.docker.com/linux/ubuntu/gpg"
+  - name: "kubernetes"
+    url: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+    key: "https://packages.cloud.google.com/apt/doc/apt-key.gpg"
+
+# Конфигурационные файлы
+config_files:
+  - src: "akts/akts.conf"
+    dest: "/etc/akts/akts.conf"
+  - src: "akts/docker-daemon.json"
+    dest: "/etc/docker/daemon.json"
+  - src: "akts/docker-compose.yml"
+    dest: "/opt/akts/docker-compose.yml"
+
+# Пост-инсталляционные скрипты
+post_install_scripts:
+  - "akts/setup-docker.sh"
+  - "akts/setup-kubernetes-tools.sh"
+  - "akts/install-akts-components.sh"
+
+# Специфичные настройки AKTS
+akts_config:
+  docker_version: "latest"
+  kubernetes_tools:
+    - kubectl
+    - helm
+    - k9s
+  container_registry: "registry.local"
+  akts_services:
+    - akts-api
+    - akts-worker
+    - akts-scheduler

@@ -1,0 +1,95 @@
+---
+# Переменные для профиля Data Warehouse
+
+# Наследование базовых настроек
+system_timezone: "UTC"
+system_locale: "en_US.UTF-8"
+
+# SSH ключи
+support_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL support@os-builder"
+tech_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL tech@os-builder"
+
+# Мониторинг (включен для DW)
+install_zabbix: true
+install_node_exporter: true
+install_promtail: true
+monitoring_enabled: true
+
+# Версии компонентов
+node_exporter_version: "1.6.1"
+promtail_version: "2.9.0"
+zabbix_agent_version: "6.4"
+
+# Настройки мониторинга
+zabbix_server: "zabbix.dw.local"
+prometheus_server: "prometheus.dw.local"
+loki_url: "http://loki.dw.local:3100"
+
+# RabbitMQ настройки
+rabbitmq_management_enabled: true
+rabbitmq_default_vhost: "/dw"
+rabbitmq_default_user: "dwuser"
+rabbitmq_default_pass: "changeme123"
+rabbitmq_admin_user: "admin"
+rabbitmq_admin_pass: "admin123"
+
+# MariaDB настройки
+mariadb_root_password: "rootpass123"
+mariadb_bind_address: "127.0.0.1"
+mariadb_max_connections: 200
+mariadb_innodb_buffer_pool_size: "256M"
+
+# Базы данных для создания
+mariadb_databases:
+  - name: "dwdb"
+    encoding: "utf8mb4"
+    collation: "utf8mb4_unicode_ci"
+  - name: "analytics"
+    encoding: "utf8mb4"
+    collation: "utf8mb4_unicode_ci"
+  - name: "reporting"
+    encoding: "utf8mb4"
+    collation: "utf8mb4_unicode_ci"
+
+# Пользователи MariaDB
+mariadb_users:
+  - name: "dwuser"
+    password: "dwpass123"
+    priv: "dwdb.*:ALL"
+    host: "localhost"
+  - name: "analytics"
+    password: "analytics123"
+    priv: "analytics.*:ALL,reporting.*:SELECT"
+    host: "localhost"
+
+# Redis настройки
+redis_bind_address: "127.0.0.1"
+redis_port: 6379
+redis_maxmemory: "128mb"
+redis_maxmemory_policy: "allkeys-lru"
+
+# Дополнительные пакеты для DW
+dw_packages:
+  - python3-sqlalchemy
+  - python3-pandas
+  - python3-numpy
+  - python3-scipy
+  - python3-matplotlib
+  - python3-redis
+  - python3-celery
+
+# Настройки производительности
+system_swappiness: 1
+system_vm_dirty_ratio: 5
+system_vm_dirty_background_ratio: 2
+
+# Лимиты файлов
+file_limits:
+  - domain: "*"
+    type: "soft"
+    item: "nofile"
+    value: "65536"
+  - domain: "*"
+    type: "hard"
+    item: "nofile"
+    value: "65536"

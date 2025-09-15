@@ -1,0 +1,32 @@
+---
+# Переменные для базового профиля
+
+# Системные настройки
+system_timezone: "UTC"
+system_locale: "en_US.UTF-8"
+
+# SSH ключи
+support_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL support@os-builder"
+tech_ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL tech@os-builder"
+
+# Мониторинг
+install_zabbix: false
+install_node_exporter: true
+install_promtail: false
+
+# Версии компонентов
+node_exporter_version: "1.6.1"
+promtail_version: "2.9.0"
+
+# Настройки мониторинга
+zabbix_server: "monitoring.local"
+prometheus_server: "prometheus.local"
+loki_url: "http://loki.local:3100"
+
+# Дополнительные пакеты для базового профиля
+base_packages: []
+
+# Настройки безопасности
+auditd_rules_strict: false
+ssh_password_auth: true
+ssh_root_login: false

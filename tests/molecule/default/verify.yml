@@ -1,0 +1,44 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check if required packages are installed
+      package:
+        name: "{{ item }}"
+        state: present
+      check_mode: true
+      register: package_check
+      failed_when: package_check.changed
+      loop:
+        - curl
+        - wget
+        - git
+        - vim
+        - htop
+        - tree
+        - unzip
+        - jq
+    
+    - name: Check if services are running
+      service:
+        name: "{{ item }}"
+        state: started
+      check_mode: true
+      register: service_check
+      failed_when: service_check.changed
+      loop:
+        - ssh
+        - systemd-resolved
+    
+    - name: Verify auditd configuration
+      stat:
+        path: /etc/audit/rules.d/audit.rules
+      register: audit_rules
+      failed_when: not audit_rules.stat.exists
+    
+    - name: Check zabbix agent configuration
+      stat:
+        path: /etc/zabbix/zabbix_agent2.conf
+      register: zabbix_config
+      failed_when: not zabbix_config.stat.exists

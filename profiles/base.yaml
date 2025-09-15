@@ -1,0 +1,61 @@
+# Базовый профиль системы
+# Минимальная конфигурация для общих задач
+
+name: base
+description: "Базовая система Ubuntu 24.04 LTS с минимальным набором инструментов"
+version: "1.0.0"
+
+# Ansible роли для применения
+roles:
+  - baseline
+  - tooling
+  - monitoring
+
+# Дополнительные пакеты (сверх базовых)
+packages: []
+
+# Файл переменных для Ansible
+vars_file: ansible/roles/vars/base.yml
+
+# Сервисы для включения/отключения
+services:
+  enable:
+    - ssh
+    - auditd
+    - systemd-timesyncd
+  disable:
+    - bluetooth
+    - cups
+    - avahi-daemon
+
+# Пользователи (дополнительно к support и tech)
+users: []
+
+# Настройки системы
+system:
+  timezone: "UTC"
+  locale: "en_US.UTF-8"
+  keyboard: "us"
+  
+# Настройки сети
+network:
+  hostname_prefix: "ubuntu-base"
+  
+# Мониторинг
+monitoring:
+  enabled: true
+  zabbix_enabled: false
+  prometheus_enabled: true
+  loki_enabled: false
+
+# Целевой размер установленной системы (в GB)
+target_size: 4
+
+# Дополнительные репозитории
+repositories: []
+
+# Конфигурационные файлы для копирования
+config_files: []
+
+# Пост-инсталляционные скрипты (относительно profiles/)
+post_install_scripts: []

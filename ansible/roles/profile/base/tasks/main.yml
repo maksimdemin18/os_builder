@@ -1,0 +1,44 @@
+---
+# Базовый профиль - минимальная конфигурация
+
+- name: Create base profile marker
+  file:
+    path: /etc/profile.d/00-base-profile.sh
+    state: touch
+    mode: '0644'
+
+- name: Set base profile environment
+  lineinfile:
+    path: /etc/profile.d/00-base-profile.sh
+    line: "{{ item }}"
+  loop:
+    - "export OS_PROFILE=base"
+    - "export OS_PROFILE_VERSION=1.0.0"
+    - "export OS_BUILD_TYPE=minimal"
+
+- name: Create base profile info file
+  copy:
+    content: |
+      Profile: base
+      Description: Базовая система Ubuntu 24.04 LTS
+      Version: 1.0.0
+      Build Date: {{ ansible_date_time.iso8601 }}
+      Target Size: < 4GB
+      
+      Included Components:
+      - SSH Server
+      - Basic system tools
+      - Monitoring (auditd, node_exporter)
+      - Development tools (gcc, make, git)
+      
+      Users:
+      - support (with sudo)
+      - tech (without sudo)
+    dest: /etc/profile-info
+    mode: '0644'
+
+- name: Log base profile configuration
+  lineinfile:
+    path: /var/log/ansible/profile.log
+    line: "{{ ansible_date_time.iso8601 }}: Base profile configured successfully"
+    create: yes

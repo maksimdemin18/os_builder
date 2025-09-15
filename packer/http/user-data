@@ -1,0 +1,172 @@
+#cloud-config
+autoinstall:
+  version: 1
+  
+  # Локализация
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ''
+  
+  # Сетевые настройки
+  network:
+    network:
+      version: 2
+      ethernets:
+        enp0s3:
+          dhcp4: true
+          dhcp-identifier: mac
+  
+  # Пользователи
+  identity:
+    hostname: ubuntu-build
+    username: support
+    # Пароль: support (сгенерирован с помощью mkpasswd -m sha-512)
+    password: '$6$rounds=4096$saltsalt$3xzPjHXKwNJSLcZV8KMzfGtJcjd4tL5kRv8nQqF7mGvKjLm9nOpQrStUvWxYzKjLm9nOpQrStUvWxYzKjLm9nO'
+    
+  # SSH настройки
+  ssh:
+    install-server: true
+    authorized-keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL support@os-builder"
+    allow-pw: true
+  
+  # APT настройки
+  apt:
+    conf: |
+      APT::Install-Recommends "0";
+      APT::Install-Suggests "0";
+      APT::Get::Assume-Yes "true";
+    sources:
+      ubuntu-security:
+        source: "deb http://security.ubuntu.com/ubuntu $RELEASE-security main restricted universe multiverse"
+      ubuntu-updates:
+        source: "deb http://archive.ubuntu.com/ubuntu $RELEASE-updates main restricted universe multiverse"
+  
+  # Схема разделов (без LVM, как требуется в ТЗ)
+  storage:
+    layout:
+      name: direct
+    config:
+      # Диск (выбираем самый большой)
+      - id: disk0
+        type: disk
+        ptable: gpt
+        wipe: superblock-recursive
+        match:
+          size: largest
+      
+      # EFI раздел (300 MB)
+      - id: part-efi
+        type: partition
+        device: disk0
+        size: 300M
+        flag: boot
+      - id: fs-efi
+        type: filesystem
+        fstype: fat32
+        volume: part-efi
+      - id: mount-efi
+        type: mount
+        device: fs-efi
+        path: /boot/efi
+      
+      # Root раздел (всё оставшееся место)
+      - id: part-root
+        type: partition
+        device: disk0
+        size: -1
+      - id: fs-root
+        type: filesystem
+        fstype: ext4
+        volume: part-root
+      - id: mount-root
+        type: mount
+        device: fs-root
+        path: /
+  
+  # Пакеты (минимальный набор, остальное через Ansible)
+  packages:
+    - openssh-server
+    - cloud-init
+    - curl
+    - wget
+  
+  # Отключение snap (как требуется в ТЗ)
+  snaps:
+    - name: snapd
+      channel: stable
+      classic: false
+  
+  # Команды после установки
+  late-commands:
+    # Отключение и удаление snapd
+    - curtin in-target -- systemctl disable snapd.service
+    - curtin in-target -- systemctl disable snapd.socket
+    - curtin in-target -- systemctl disable snapd.seeded.service
+    - curtin in-target -- apt-get purge -y snapd
+    
+    # Очистка кэшей
+    - curtin in-target -- apt-get autoremove -y --purge
+    - curtin in-target -- apt-get clean
+    - curtin in-target -- rm -rf /var/lib/apt/lists/*
+    - curtin in-target -- rm -rf /var/cache/apt/archives/*
+    
+    # Создание директорий для пост-инсталляции
+    - curtin in-target -- mkdir -p /opt/postinstall.d
+    - curtin in-target -- mkdir -p /opt/postinstall.d/profiles
+    - curtin in-target -- mkdir -p /var/log/installer
+    
+    # Загрузка firstboot сервиса и скриптов
+    - curtin in-target -- curl -fsSL http://{{ .HTTPIP }}:{{ .HTTPPort }}/seed/firstboot.service -o /etc/systemd/system/firstboot.service
+    - curtin in-target -- curl -fsSL http://{{ .HTTPIP }}:{{ .HTTPPort }}/seed/firstboot.sh -o /opt/firstboot.sh
+    - curtin in-target -- chmod +x /opt/firstboot.sh
+    
+    # Загрузка общих пост-инсталляционных скриптов
+    - curtin in-target -- curl -fsSL http://{{ .HTTPIP }}:{{ .HTTPPort }}/seed/postinstall-common.d/00-users-and-ssh.sh -o /opt/postinstall.d/00-users-and-ssh.sh
+    - curtin in-target -- curl -fsSL http://{{ .HTTPIP }}:{{ .HTTPPort }}/seed/postinstall-common.d/10-tooling.sh -o /opt/postinstall.d/10-tooling.sh
+    - curtin in-target -- curl -fsSL http://{{ .HTTPIP }}:{{ .HTTPPort }}/seed/postinstall-common.d/20-auditd.sh -o /opt/postinstall.d/20-auditd.sh
+    - curtin in-target -- curl -fsSL http://{{ .HTTPIP }}:{{ .HTTPPort }}/seed/postinstall-common.d/30-monitoring.sh -o /opt/postinstall.d/30-monitoring.sh
+    - curtin in-target -- chmod +x /opt/postinstall.d/*.sh
+    
+    # Включение firstboot сервиса
+    - curtin in-target -- systemctl enable firstboot.service
+    
+    # Извлечение профиля из командной строки и сохранение
+    - "sh -c 'p=$(sed -n \"s/.*profile=\$$[^ ]*\$$.*/\\1/p\" /proc/cmdline || true); [ -z \"$p\" ] && p=base; echo $p > /target/etc/os-profile'"
+    
+    # Создание пользователя tech (без sudo)
+    - curtin in-target -- useradd -m -s /bin/bash tech
+    - curtin in-target -- echo 'tech:tech' | chpasswd
+    
+    # Настройка sudo для support
+    - curtin in-target -- usermod -aG sudo support
+    
+    # Настройка SSH для tech пользователя
+    - curtin in-target -- mkdir -p /home/tech/.ssh
+    - curtin in-target -- echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL tech@os-builder" > /home/tech/.ssh/authorized_keys
+    - curtin in-target -- chown -R tech:tech /home/tech/.ssh
+    - curtin in-target -- chmod 700 /home/tech/.ssh
+    - curtin in-target -- chmod 600 /home/tech/.ssh/authorized_keys
+    
+    # Логирование установки
+    - curtin in-target -- echo "Installation completed at $(date)" >> /var/log/installer/install.log
+    - curtin in-target -- echo "Profile: $(cat /etc/os-profile)" >> /var/log/installer/install.log
+    - curtin in-target -- df -h >> /var/log/installer/install.log
+  
+  # Пользовательские данные для cloud-init
+  user-data:
+    runcmd:
+      - [ cloud-init, clean ]
+      - [ systemctl, daemon-reload ]
+    
+    final_message: |
+      Ubuntu 24.04 LTS installation complete.
+      Firstboot service will configure the system on next boot.
+      Profile: $(cat /etc/os-profile 2>/dev/null || echo "base")
+      
+  # Отключение обновлений во время установки
+  updates: security
+  
+  # Перезагрузка после установки
+  shutdown: reboot

@@ -1,0 +1,104 @@
+# Профиль Data Warehouse
+# Система для работы с данными и очередями сообщений
+
+name: dw
+description: "Data Warehouse система с RabbitMQ и MariaDB"
+version: "1.0.0"
+
+# Ansible роли для применения
+roles:
+  - baseline
+  - tooling
+  - monitoring
+  - profile/dw
+
+# Дополнительные пакеты
+packages:
+  - rabbitmq-server
+  - mariadb-server
+  - mariadb-client
+  - python3-pymysql
+  - python3-pika
+  - redis-server
+  - redis-tools
+  - postgresql-client
+  - mongodb-clients
+
+# Файл переменных для Ansible
+vars_file: ansible/roles/vars/dw.yml
+
+# Сервисы для включения/отключения
+services:
+  enable:
+    - ssh
+    - auditd
+    - systemd-timesyncd
+    - rabbitmq-server
+    - mariadb
+    - redis-server
+  disable:
+    - bluetooth
+    - cups
+    - avahi-daemon
+
+# Дополнительные пользователи
+users:
+  - name: dwuser
+    groups: [rabbitmq, mysql]
+    shell: /bin/bash
+    home: /home/dwuser
+
+# Настройки системы
+system:
+  timezone: "UTC"
+  locale: "en_US.UTF-8"
+  keyboard: "us"
+  
+# Настройки сети
+network:
+  hostname_prefix: "ubuntu-dw"
+  
+# Мониторинг
+monitoring:
+  enabled: true
+  zabbix_enabled: true
+  prometheus_enabled: true
+  loki_enabled: true
+
+# Целевой размер установленной системы (в GB)
+target_size: 8
+
+# Дополнительные репозитории
+repositories:
+  - name: "rabbitmq"
+    url: "deb https://packagecloud.io/rabbitmq/rabbitmq-server/ubuntu/ focal main"
+    key: "https://packagecloud.io/rabbitmq/rabbitmq-server/gpgkey"
+
+# Конфигурационные файлы
+config_files:
+  - src: "dw/rabbitmq.conf"
+    dest: "/etc/rabbitmq/rabbitmq.conf"
+  - src: "dw/mariadb.cnf"
+    dest: "/etc/mysql/mariadb.conf.d/50-dw.cnf"
+
+# Пост-инсталляционные скрипты
+post_install_scripts:
+  - "dw/setup-rabbitmq.sh"
+  - "dw/setup-mariadb.sh"
+  - "dw/create-databases.sh"
+
+# Специфичные настройки DW
+dw_config:
+  rabbitmq:
+    management_enabled: true
+    default_vhost: "/dw"
+    default_user: "dwuser"
+  mariadb:
+    root_password: "changeme"
+    databases:
+      - "dwdb"
+      - "analytics"
+    users:
+      - name: "dwuser"
+        password: "changeme"
+        privileges: "dwdb.*:ALL"

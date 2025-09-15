@@ -1,0 +1,356 @@
+name: Build Ubuntu 24.04 LTS ISO Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      profiles:
+        description: 'Profiles to build (comma-separated or "all")'
+        required: true
+        default: 'all'
+        type: string
+      ubuntu_version:
+        description: 'Ubuntu version'
+        required: false
+        default: '24.04'
+        type: string
+      verify_iso:
+        description: 'Verify ISO after build'
+        required: false
+        default: true
+        type: boolean
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'profiles/**'
+      - 'ansible/**'
+      - 'packer/**'
+      - 'live-build/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'profiles/**'
+      - 'ansible/**'
+      - 'packer/**'
+      - 'live-build/**'
+  schedule:
+    # Weekly rebuild every Monday at 2:00 AM UTC
+    - cron: '0 2 * * 1'
+
+env:
+  PACKER_VERSION: "1.11.2"
+  ANSIBLE_VERSION: "8.0.0"
+  UBUNTU_VERSION: "24.04"
+
+jobs:
+  # Проверка синтаксиса и линтинг
+  lint:
+    name: Lint and Validate
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yamllint shellcheck
+          pip install ansible-lint
+
+      - name: Lint YAML files
+        run: |
+          yamllint -d relaxed profiles/
+          yamllint -d relaxed ansible/
+          yamllint -d relaxed .github/
+
+      - name: Lint shell scripts
+        run: |
+          find . -name "*.sh" -type f -exec shellcheck {} \;
+
+      - name: Lint Ansible playbooks
+        run: |
+          ansible-lint ansible/playbooks/
+          ansible-lint ansible/roles/
+
+      - name: Validate Packer templates
+        run: |
+          curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" -o /tmp/packer.zip
+          sudo unzip -o /tmp/packer.zip -d /usr/local/bin
+          cd packer && packer validate .
+
+  # Определение матрицы профилей для сборки
+  matrix:
+    name: Generate Build Matrix
+    runs-on: ubuntu-22.04
+    needs: lint
+    outputs:
+      profiles: ${{ steps.set-matrix.outputs.profiles }}
+      build-needed: ${{ steps.check-changes.outputs.build-needed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "build-needed=true" >> $GITHUB_OUTPUT
+          elif git diff --name-only HEAD^ HEAD | grep -E "(profiles/|ansible/|packer/|live-build/)" > /dev/null; then
+            echo "build-needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "build-needed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set build matrix
+        id: set-matrix
+        run: |
+          if [[ "${{ github.event.inputs.profiles }}" == "all" ]] || [[ -z "${{ github.event.inputs.profiles }}" ]]; then
+            PROFILES='["base", "dw", "atpm", "arm", "prizm", "akts"]'
+          else
+            # Convert comma-separated input to JSON array
+            PROFILES=$(echo "${{ github.event.inputs.profiles }}" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$"; ""))')
+          fi
+          echo "profiles=$PROFILES" >> $GITHUB_OUTPUT
+
+  # Сборка образов
+  build:
+    name: Build ISO (${{ matrix.profile }})
+    runs-on: ubuntu-22.04
+    needs: matrix
+    if: needs.matrix.outputs.build-needed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ fromJson(needs.matrix.outputs.profiles) }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+
+      - name: Setup KVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-kvm libvirt-daemon-system virtinst \
+            cloud-image-utils xorriso isolinux p7zip-full curl jq
+          sudo usermod -a -G kvm,libvirt $USER
+          # Check KVM
+          sudo kvm-ok || echo "KVM not available, using software emulation"
+
+      - name: Install Packer
+        run: |
+          curl -fsSL "https://releases.hashicorp.com/packer/${PACKER_VERSION}/packer_${PACKER_VERSION}_linux_amd64.zip" -o /tmp/packer.zip
+          sudo unzip -o /tmp/packer.zip -d /usr/local/bin
+          packer version
+
+      - name: Install Ansible
+        run: |
+          pip install "ansible==$ANSIBLE_VERSION"
+          ansible --version
+
+      - name: Cache Ubuntu ISO
+        uses: actions/cache@v3
+        with:
+          path: packer/build/
+          key: ubuntu-iso-${{ env.UBUNTU_VERSION }}-${{ hashFiles('packer/variables.pkr.hcl') }}
+          restore-keys: |
+            ubuntu-iso-${{ env.UBUNTU_VERSION }}-
+
+      - name: Build base image with Packer
+        working-directory: packer
+        run: |
+          # Set profile in environment
+          export PROFILE=${{ matrix.profile }}
+          
+          # Initialize Packer
+          packer init .
+          
+          # Build image
+          PACKER_LOG=1 packer build \
+            -var "profile=${{ matrix.profile }}" \
+            -var "vm_name=ubuntu-2404-${{ matrix.profile }}" \
+            .
+
+      - name: Build ISO
+        working-directory: live-build
+        run: |
+          export PROFILE=${{ matrix.profile }}
+          sudo ./mkiso.sh --profile ${{ matrix.profile }} --verify
+
+      - name: Test ISO boot
+        if: github.event.inputs.verify_iso == 'true' || github.event_name != 'workflow_dispatch'
+        working-directory: live-build
+        run: |
+          sudo ./test-iso.sh --test-type boot \
+            "dist/ubuntu-24.04-${{ matrix.profile }}-latest.iso"
+
+      - name: Generate build info
+        run: |
+          mkdir -p artifacts
+          cat > artifacts/build-info-${{ matrix.profile }}.json << EOF
+          {
+            "profile": "${{ matrix.profile }}",
+            "ubuntu_version": "${{ env.UBUNTU_VERSION }}",
+            "build_date": "$(date -Iseconds)",
+            "git_commit": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}",
+            "workflow_run": "${{ github.run_number }}",
+            "builder": "github-actions"
+          }
+          EOF
+
+      - name: Calculate checksums
+        working-directory: live-build/dist
+        run: |
+          sha256sum *.iso > checksums-${{ matrix.profile }}.txt
+          sha512sum *.iso > checksums-${{ matrix.profile }}.sha512
+
+      - name: Upload ISO artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-24.04-${{ matrix.profile }}-iso
+          path: |
+            live-build/dist/*.iso
+            live-build/dist/checksums-*.txt
+            live-build/dist/checksums-*.sha512
+            live-build/dist/manifest-*.json
+            artifacts/build-info-*.json
+          retention-days: 30
+
+      - name: Upload Packer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-24.04-${{ matrix.profile }}-qcow2
+          path: |
+            packer/artifacts/qcow2/*.qcow2
+            packer/artifacts/checksums.txt
+          retention-days: 7
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.profile }}
+          path: |
+            live-build/test-results/
+          retention-days: 7
+
+  # Создание релиза
+  release:
+    name: Create Release
+    runs-on: ubuntu-22.04
+    needs: [matrix, build]
+    if: needs.matrix.outputs.build-needed == 'true' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release/
+          
+          # Copy ISO files
+          find artifacts/ -name "*.iso" -exec cp {} release/ \;
+          find artifacts/ -name "checksums-*.txt" -exec cp {} release/ \;
+          find artifacts/ -name "checksums-*.sha512" -exec cp {} release/ \;
+          find artifacts/ -name "manifest-*.json" -exec cp {} release/ \;
+          
+          # Create combined checksums
+          cat release/checksums-*.txt > release/SHA256SUMS
+          cat release/checksums-*.sha512 > release/SHA512SUMS
+          
+          # Create release notes
+          cat > release/RELEASE_NOTES.md << EOF
+          # Ubuntu 24.04 LTS Autoinstall Images
+          
+          **Build Date:** $(date)
+          **Git Commit:** ${{ github.sha }}
+          **Workflow Run:** ${{ github.run_number }}
+          
+          ## Profiles Built
+          
+          $(find release/ -name "*.iso" | sed 's/.*ubuntu-24.04-$$[^-]*$$-.*/- \1/' | sort -u)
+          
+          ## Verification
+          
+          Verify checksums with:
+          \`\`\`bash
+          sha256sum -c SHA256SUMS
+          sha512sum -c SHA512SUMS
+          \`\`\`
+          
+          ## Installation
+          
+          1. Write ISO to USB drive or boot in VM
+          2. Select desired profile from GRUB menu
+          3. Installation will proceed automatically
+          4. Default users: support (sudo), tech (no sudo)
+          
+          ## Changes
+          
+          $(git log --oneline --since="1 week ago" | head -10)
+          EOF
+
+      - name: Create release tag
+        id: tag
+        run: |
+          TAG="v$(date +%Y.%m.%d)-build${{ github.run_number }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Ubuntu 24.04 LTS Images - ${{ steps.tag.outputs.tag }}"
+          body_path: release/RELEASE_NOTES.md
+          files: |
+            release/*.iso
+            release/SHA256SUMS
+            release/SHA512SUMS
+            release/manifest-*.json
+          draft: false
+          prerelease: ${{ github.ref != 'refs/heads/main' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Уведомления
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-22.04
+    needs: [build, release]
+    if: always() && (needs.build.result == 'success' || needs.build.result == 'failure')
+    
+    steps:
+      - name: Notify on success
+        if: needs.build.result == 'success'
+        run: |
+          echo "✅ Build completed successfully"
+          echo "Profiles built: ${{ needs.matrix.outputs.profiles }}"
+          echo "Release created: ${{ needs.release.result == 'success' }}"
+
+      - name: Notify on failure
+        if: needs.build.result == 'failure'
+        run: |
+          echo "❌ Build failed"
+          echo "Check the logs for details"
+          exit 1

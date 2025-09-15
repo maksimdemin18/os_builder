@@ -1,0 +1,97 @@
+# Профиль ARM
+# Система для ARM архитектуры и специфичных задач
+
+name: arm
+description: "ARM система с оптимизациями и специфичными инструментами"
+version: "1.0.0"
+
+# Ansible роли для применения
+roles:
+  - baseline
+  - tooling
+  - monitoring
+  - profile/arm
+
+# Дополнительные пакеты
+packages:
+  - gcc-arm-linux-gnueabihf
+  - g++-arm-linux-gnueabihf
+  - gcc-aarch64-linux-gnu
+  - g++-aarch64-linux-gnu
+  - qemu-user-static
+  - binfmt-support
+  - device-tree-compiler
+  - u-boot-tools
+  - openocd
+  - gdb-multiarch
+
+# Файл переменных для Ansible
+vars_file: ansible/roles/vars/arm.yml
+
+# Сервисы для включения/отключения
+services:
+  enable:
+    - ssh
+    - auditd
+    - systemd-timesyncd
+    - binfmt-support
+  disable:
+    - bluetooth
+    - cups
+    - avahi-daemon
+
+# Дополнительные пользователи
+users:
+  - name: armdev
+    groups: [dialout, plugdev]
+    shell: /bin/bash
+    home: /home/armdev
+
+# Настройки системы
+system:
+  timezone: "UTC"
+  locale: "en_US.UTF-8"
+  keyboard: "us"
+  
+# Настройки сети
+network:
+  hostname_prefix: "ubuntu-arm"
+  
+# Мониторинг
+monitoring:
+  enabled: true
+  zabbix_enabled: false
+  prometheus_enabled: true
+  loki_enabled: false
+
+# Целевой размер установленной системы (в GB)
+target_size: 5
+
+# Дополнительные репозитории
+repositories: []
+
+# Конфигурационные файлы
+config_files:
+  - src: "arm/cross-compile.conf"
+    dest: "/etc/arm/cross-compile.conf"
+  - src: "arm/qemu-arm.conf"
+    dest: "/etc/binfmt.d/qemu-arm.conf"
+
+# Пост-инсталляционные скрипты
+post_install_scripts:
+  - "arm/setup-cross-compile.sh"
+  - "arm/setup-qemu-arm.sh"
+  - "arm/install-arm-tools.sh"
+
+# Специфичные настройки ARM
+arm_config:
+  cross_compile_targets:
+    - armhf
+    - aarch64
+  qemu_architectures:
+    - arm
+    - aarch64
+  development_boards:
+    - raspberry-pi
+    - beaglebone
+    - nvidia-jetson

@@ -1,0 +1,137 @@
+---
+- name: Install baseline system packages
+  apt:
+    name:
+      - curl
+      - wget
+      - unzip
+      - zip
+      - tar
+      - gzip
+      - bzip2
+      - xz-utils
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - apt-transport-https
+    state: present
+    update_cache: yes
+
+- name: Configure timezone
+  timezone:
+    name: "{{ system_timezone | default('UTC') }}"
+
+- name: Configure locale
+  locale_gen:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - en_US.UTF-8
+    - ru_RU.UTF-8
+
+- name: Set default locale
+  lineinfile:
+    path: /etc/default/locale
+    regexp: '^LANG='
+    line: 'LANG=en_US.UTF-8'
+
+- name: Ensure support user exists with proper configuration
+  user:
+    name: support
+    groups: sudo
+    shell: /bin/bash
+    create_home: yes
+    state: present
+
+- name: Ensure tech user exists without sudo
+  user:
+    name: tech
+    shell: /bin/bash
+    create_home: yes
+    state: present
+
+- name: Configure SSH for support user
+  authorized_key:
+    user: support
+    key: "{{ support_ssh_key | default('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL support@os-builder') }}"
+    state: present
+
+- name: Configure SSH for tech user
+  authorized_key:
+    user: tech
+    key: "{{ tech_ssh_key | default('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG8V7mGg7l9B5zQvQqF7mGvKjLm9nOpQrStUvWxYzKjL tech@os-builder') }}"
+    state: present
+
+- name: Configure sudo for support user
+  lineinfile:
+    path: /etc/sudoers.d/support
+    line: 'support ALL=(ALL) NOPASSWD:ALL'
+    create: yes
+    mode: '0440'
+    validate: 'visudo -cf %s'
+
+- name: Configure SSH daemon
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: yes
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication yes' }
+    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+    - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+  notify: restart ssh
+
+- name: Configure system limits
+  pam_limits:
+    domain: '*'
+    limit_type: "{{ item.type }}"
+    limit_item: "{{ item.item }}"
+    value: "{{ item.value }}"
+  loop:
+    - { type: 'soft', item: 'nofile', value: '65536' }
+    - { type: 'hard', item: 'nofile', value: '65536' }
+    - { type: 'soft', item: 'nproc', value: '32768' }
+    - { type: 'hard', item: 'nproc', value: '32768' }
+
+- name: Configure kernel parameters
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop:
+    - { name: 'vm.swappiness', value: '10' }
+    - { name: 'vm.vfs_cache_pressure', value: '50' }
+    - { name: 'net.core.rmem_max', value: '16777216' }
+    - { name: 'net.core.wmem_max', value: '16777216' }
+    - { name: 'net.ipv4.tcp_rmem', value: '4096 87380 16777216' }
+    - { name: 'net.ipv4.tcp_wmem', value: '4096 65536 16777216' }
+
+- name: Disable unnecessary services
+  systemd:
+    name: "{{ item }}"
+    enabled: no
+    state: stopped
+  loop:
+    - bluetooth
+    - cups
+    - avahi-daemon
+  failed_when: false
+
+- name: Enable essential services
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  loop:
+    - ssh
+    - systemd-timesyncd
+
+handlers:
+  - name: restart ssh
+    systemd:
+      name: ssh
+      state: restarted

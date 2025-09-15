@@ -1,0 +1,2 @@
+instance-id: ubuntu-build-$(date +%s)
+local-hostname: ubuntu-build
