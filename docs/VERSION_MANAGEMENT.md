@@ -12,7 +12,6 @@
 
 ### Автоматическое обновление
 
-\`\`\`bash
 # Обновление на Ubuntu 24.04 LTS
 ./scripts/update-ubuntu-version.sh 24.04
 
@@ -21,21 +20,21 @@
 
 # Обновление на Ubuntu 20.04 LTS
 ./scripts/update-ubuntu-version.sh 20.04
-\`\`\`
+
 
 ### Ручное обновление
 
 1. **Найдите актуальную информацию**:
-\`\`\`bash
+
 # Перейдите на https://releases.ubuntu.com/24.04/
 # Найдите файл ubuntu-24.04.1-live-server-amd64.iso
 # Скопируйте URL и контрольную сумму SHA256
-\`\`\`
+
 
 2. **Обновите конфигурацию**:
-\`\`\`bash
+
 nano packer/variables.pkr.hcl
-\`\`\`
+
 
 Измените следующие переменные:
 ```hcl
