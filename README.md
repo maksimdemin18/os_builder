@@ -16,25 +16,200 @@
 
 \`\`\`
 os-builder/
-├── README.md                    # Этот файл
-├── docs/                        # Документация
-│   ├── HOWTO.md                # Подробное руководство
-│   └── PROFILES.md             # Описание профилей
-├── packer/                      # Конфигурация Packer
-│   ├── main.pkr.hcl            # Основная конфигурация
-│   ├── variables.pkr.hcl       # Переменные
-│   └── http/                   # Файлы для autoinstall
-├── ansible/                     # Роли и плейбуки Ansible
-│   ├── inventories/
-│   ├── playbooks/
-│   └── roles/
-├── live-build/                  # Скрипты сборки ISO
-├── profiles/                    # Конфигурации профилей
-├── tests/                       # Тесты и верификация
-└── ci/                         # CI/CD конфигурация
+├── README.md                          # Основная документация
+├── Makefile                          # Команды сборки и управления
+├── .gitignore                        # Игнорируемые файлы
+├── LICENSE                           # Лицензия проекта
+│
+├── docs/                             # Документация
+│   ├── BEGINNER_GUIDE.md            # Руководство для начинающих
+│   ├── QUICK_START.md               # Быстрый старт
+│   ├── LOCAL_PACKAGES.md            # Управление локальными пакетами
+│   ├── TROUBLESHOOTING.md           # Решение проблем
+│   └── VERSION_MANAGEMENT.md        # Управление версиями
+│
+├── packer/                          # Конфигурация Packer
+│   ├── main.pkr.hcl                # Основная конфигурация
+│   ├── variables.pkr.hcl           # Переменные
+│   └── http/                       # Файлы для autoinstall
+│       ├── user-data               # Конфигурация autoinstall
+│       ├── meta-data               # Метаданные
+│       └── seed/                   # Скрипты первого запуска
+│           ├── firstboot.sh        # Скрипт первого запуска
+│           └── firstboot.service   # Systemd сервис
+│
+├── ansible/                        # Конфигурация Ansible
+│   ├── inventories/                # Инвентори
+│   │   └── local                   # Локальный инвентори
+│   ├── playbooks/                  # Playbook'и
+│   │   ├── base.yml               # Базовая настройка
+│   │   ├── profile.yml            # Настройка профилей
+│   │   └── verify.yml             # Проверка системы
+│   └── roles/                      # Роли Ansible
+│       ├── baseline/               # Базовые настройки
+│       ├── tooling/               # Инструменты
+│       ├── monitoring/            # Мониторинг
+│       ├── docker/                # Docker
+│       └── profile/               # Профили
+│           ├── base/              # Базовый профиль
+│           ├── dw/                # Профиль DW
+│           ├── atpm/              # Профиль ATPM
+│           ├── arm/               # Профиль ARM
+│           ├── prizm/             # Профиль PRIZM
+│           └── akts/              # Профиль AKTS
+│
+├── profiles/                       # Конфигурации профилей
+│   ├── base.yaml                   # Базовый профиль
+│   ├── dw.yaml                     # Профиль DW
+│   ├── atpm.yaml                   # Профиль ATPM
+│   ├── arm.yaml                    # Профиль ARM
+│   ├── prizm.yaml                  # Профиль PRIZM
+│   └── akts.yaml                   # Профиль AKTS
+│
+├── live-build/                     # Скрипты создания ISO
+│   ├── mkiso.sh                    # Основной скрипт создания ISO
+│   ├── build-all-profiles.sh      # Сборка всех профилей
+│   ├── test-iso.sh                 # Тестирование ISO
+│   └── templates/                  # Шаблоны
+│       └── grub.cfg.template       # Шаблон GRUB
+│
+├── scripts/                        # Утилиты и скрипты
+│   ├── manage-local-packages.sh    # Управление локальными пакетами
+│   ├── setup-no-kvm.sh            # Настройка без KVM
+│   ├── update-ubuntu-version.sh   # Обновление версии Ubuntu
+│   ├── fix-common-issues.sh       # Исправление проблем
+│   ├── check-system.sh            # Проверка системы
+│   ├── install-deps-manual.sh     # Ручная установка зависимостей
+│   ├── fix-repositories.sh        # Исправление репозиториев
+│   └── diagnose-system.sh          # Диагностика системы
+│
+├── local-packages/                 # Локальные пакеты
+│   ├── debs/                       # .deb файлы
+│   ├── sources/                    # Исходники пакетов
+│   └── repo/                       # Локальный репозиторий
+│
+├── tests/                          # Тесты
+│   ├── test-packer.sh             # Тесты Packer
+│   ├── test-ansible.sh            # Тесты Ansible
+│   ├── test-iso.sh                # Тесты ISO
+│   ├── run-all-tests.sh           # Запуск всех тестов
+│   └── molecule/                   # Molecule тесты
+│       └── default/
+│           ├── molecule.yml        # Конфигурация Molecule
+│           ├── converge.yml        # Тест конвергенции
+│           └── verify.yml          # Проверка результатов
+│
+├── ci/                             # CI/CD конфигурация
+│   ├── docker-compose.yml         # Docker Compose для CI
+│   └── setup-local-ci.sh          # Настройка локального CI
+│
+├── .github/                        # GitHub Actions
+│   └── workflows/
+│       ├── build-iso.yml          # Сборка ISO
+│       ├── test-iso.yml           # Тестирование ISO
+│       ├── update-base-image.yml  # Обновление базового образа
+│       └── security-scan.yml      # Сканирование безопасности
+│
+└── dist/                           # Готовые образы
+    ├── ubuntu-24.04-base.iso      # Базовый образ
+    ├── ubuntu-24.04-dw.iso        # Образ DW
+    ├── ubuntu-24.04-atpm.iso      # Образ ATPM
+    ├── ubuntu-24.04-arm.iso       # Образ ARM
+    ├── ubuntu-24.04-prizm.iso     # Образ PRIZM
+    └── ubuntu-24.04-akts.iso      # Образ AKTS
 \`\`\`
 
 ## Быстрый старт
+
+1. **Клонируйте проект**:
+   \`\`\`bash
+   # Скачайте ZIP файл из v0 или создайте Git репозиторий
+   git init
+   git add .
+   git commit -m "Initial commit"
+   \`\`\`
+
+2. **Установите зависимости**:
+   \`\`\`bash
+   chmod +x scripts/*.sh
+   ./scripts/install-deps-manual.sh
+   \`\`\`
+
+3. **Настройте систему**:
+   \`\`\`bash
+   ./scripts/setup-no-kvm.sh  # Если работаете на ВМ
+   ./scripts/fix-common-issues.sh
+   \`\`\`
+
+4. **Соберите образ**:
+   \`\`\`bash
+   make build-profile PROFILE=base
+   \`\`\`
+
+## Основные команды
+
+\`\`\`bash
+# Установка зависимостей
+make install-deps
+
+# Валидация конфигурации
+make validate
+
+# Сборка всех профилей
+make build-all
+
+# Сборка конкретного профиля
+make build-profile PROFILE=base
+
+# Сборка без KVM
+make build-no-kvm
+
+# Тестирование
+make test
+
+# Очистка
+make clean
+\`\`\`
+
+## Управление пакетами
+
+\`\`\`bash
+# Добавить локальный пакет
+./scripts/manage-local-packages.sh add package.deb
+
+# Создать пакет из исходников
+./scripts/manage-local-packages.sh build-from-source /path/to/source
+
+# Обновить локальный репозиторий
+./scripts/manage-local-packages.sh update-repo
+\`\`\`
+
+## Смена версии Ubuntu
+
+\`\`\`bash
+# Обновить до Ubuntu 24.04
+./scripts/update-ubuntu-version.sh 24.04
+
+# Проверить доступные версии
+./scripts/update-ubuntu-version.sh --list
+\`\`\`
+
+## Поддержка
+
+- 📖 [Руководство для начинающих](docs/BEGINNER_GUIDE.md)
+- 🚀 [Быстрый старт](docs/QUICK_START.md)
+- 📦 [Управление пакетами](docs/LOCAL_PACKAGES.md)
+- 🔧 [Решение проблем](docs/TROUBLESHOOTING.md)
+- 🔄 [Управление версиями](docs/VERSION_MANAGEMENT.md)
+
+## Лицензия
+
+MIT License - см. файл LICENSE для деталей.
+\`\`\`
+
+```makefile file="" isHidden
+```
+
 
 ### Требования
 
